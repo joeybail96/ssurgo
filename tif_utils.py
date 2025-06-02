@@ -408,6 +408,7 @@ class TifProcessor:
     def plot_ds_epsg4326(
         self, ds, var_name, colormap,
         bounding_box=None,  # Optional (min_lon, max_lon, min_lat, max_lat)
+        plot_title=None,
         save_path=None, grid_thickness="0", show_colorbar=True,
         show_values=False, colorbar_limits=(0, 1)
     ):
@@ -467,6 +468,10 @@ class TifProcessor:
                     )
     
         plt.tight_layout()
+        
+        # ✅ Add the plot title here
+        if plot_title:
+            ax.set_title(plot_title, fontsize=14, pad=15)
     
         if save_path:
             plt.savefig(save_path, dpi=300, bbox_inches='tight')
