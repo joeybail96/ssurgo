@@ -1,83 +1,109 @@
-from tif_utils import Tiff_Regrid as tr
-import xarray as xr
 import os
+import xarray as xr
+from tif_utils_v3 import TifProcessor
 
 
+# Init processor
+processor = TifProcessor()
+base_path = "/uufs/chpc.utah.edu/common/home/haskins-group1/users/jbail/GEOSChem/SSURGO/Scripts/in_process_data"
 
-class_tr = tr()
 
-
-# Step 1: Convert TIFF to EPSG:4326
+# Step 1: Convert TIFF to COARDS-compliant NetCDF
+coards_nc = os.path.join(base_path, "1US_EC_coards.nc")
 input_tif = "/uufs/chpc.utah.edu/common/home/haskins-group1/users/jbail/GEOSChem/SSURGO/QGIS/US_EC.tif"
-tif_4326_path = "/uufs/chpc.utah.edu/common/home/haskins-group1/users/jbail/GEOSChem/SSURGO/Scripts/in_process_data/_archive/US_EC_4326.tif"
-if not os.path.exists(tif_4326_path):
-    print(f"Creating {tif_4326_path} ...")
-    class_tr.tiff_4326_path = class_tr.convert4326(input_tif, tif_4326_path)
+if not os.path.exists(coards_nc):
+    print(f"Converting {input_tif} to COARDS-compliant NetCDF...")
+    ds_coards = processor.tif_to_coards_netcdf(
+        input_tif, coards_nc, var_name="EC",
+        long_name="Electrical Conductivity", units="dS/m"
+    )
 else:
-    print(f"{tif_4326_path} already exists. Skipping conversion.")
-    class_tr.tiff_4326_path = tif_4326_path
+    print(f"{coards_nc} exists. Loading from file...")
+    ds_coards = xr.open_dataset(coards_nc)
 
-# Step 2: Convert TIFF to NetCDF (EC)
-ec_nc_path = "/uufs/chpc.utah.edu/common/home/haskins-group1/users/jbail/GEOSChem/SSURGO/Scripts/in_process_data/_archive/US_EC_4326.nc"
-if not os.path.exists(ec_nc_path):
-    print(f"Creating {ec_nc_path} ...")
-    class_tr.ec_ncfile = class_tr.tiff_CDF(ec_nc_path, "EC", "Electrical conductivity (dS/cm)")
+
+
+# Step 2: Mask by EC threshold
+mask_nc = os.path.join(base_path, "2US_EC_mask.nc")
+ec_threshold = 8.1
+if not os.path.exists(mask_nc):
+    print(f"Applying threshold mask: EC >= {ec_threshold}...")
+    ds_mask = processor.mask_by_threshold(
+        ds=ds_coards,
+        target_variable="Playa_Mask",
+        ec_var="EC",
+        threshold=ec_threshold,
+        longname="Binary mask for EC >= 8.1 dS/cm",
+        output_cdf_path=mask_nc
+    )
 else:
-    print(f"{ec_nc_path} already exists. Loading...")
-    class_tr.ec_ncfile = xr.open_dataset(ec_nc_path)
+    print(f"{mask_nc} exists. Loading from file...")
+    ds_mask = xr.open_dataset(mask_nc)
 
-# Step 3: Create playa mask
-playa_mask_nc_path = "/uufs/chpc.utah.edu/common/home/haskins-group1/users/jbail/GEOSChem/SSURGO/Scripts/in_process_data/_archive/US_playa_mask_4326.nc"
-if not os.path.exists(playa_mask_nc_path):
-    print(f"Creating playa mask at {playa_mask_nc_path} ...")
-    class_tr.playa_mask_ncfile = class_tr.playa_mask(playa_mask_nc_path, "Playa_Mask", "EC", "Playa mask where EC >=8.1 dS/cm", 8.1)
+
+
+# # Step 3a: Resample the mask dataset
+# resampled_nc = os.path.join(base_path, "3aUS_EC_resampled.nc")
+# if not os.path.exists(resampled_nc):
+#     print("Resampling masked dataset...")
+#     ds_resampled = processor.resample_dataset(ds_mask, resampled_nc, var_name='Playa_Mask', scale_factor=0.1)
+# else:
+#     print(f"{resampled_nc} exists. Loading from file...")
+#     ds_resampled = xr.open_dataset(resampled_nc)
+
+
+
+# Step 3b: Coarsen the mask dataset
+coarsened_nc = os.path.join(base_path, "3bUS_EC_coarsened.nc")
+if not os.path.exists(coarsened_nc):
+    print("Coarsening masked dataset...")
+    # Apply the coarsening function, e.g., with factor 10
+    ds_coarsened = processor.coarsen_dataset(ds_mask, coarsened_nc, var_name='Playa_Mask', factor=1.75)
 else:
-    print(f"{playa_mask_nc_path} already exists. Skipping playa mask generation.")
-    class_tr.playa_mask_ncfile = xr.open_dataset(playa_mask_nc_path)
+    print(f"{coarsened_nc} exists. Loading from file...")
+    ds_coarsened = xr.open_dataset(coarsened_nc)
 
-# Step 4: Downsample
-low_res_path = "/uufs/chpc.utah.edu/common/home/haskins-group1/users/jbail/GEOSChem/SSURGO/Scripts/in_process_data/_archive/US_playa_mask_4326_01downsampled.nc"
-if not os.path.exists(low_res_path):
-    print(f"Downsampling and saving to {low_res_path} ...")
-    class_tr.downsampled_playa_mask_ncfile = class_tr.coarsen_nc_resolution(playa_mask_nc_path, low_res_path, var_name='Playa_Mask', scale_factor=0.1)
+
+# Step 4: Reproject the resampled dataset
+reprojected_nc = os.path.join(base_path, "4bUS_EC_reprojected.nc")
+if not os.path.exists(reprojected_nc):
+    print("Reprojecting resampled dataset from EPSG:5070 to EPSG:4326...")
+    ds_reprojected = processor.reproject_to_4326(ds_coarsened, reprojected_nc, "Playa_Mask")
 else:
-    print(f"{low_res_path} already exists. Loading...")
-    class_tr.downsampled_playa_mask_ncfile = xr.open_dataset(low_res_path)
+    print(f"{reprojected_nc} exists. Loading from file...")
+    ds_reprojected = xr.open_dataset(reprojected_nc)
 
-# Step 5: Regrid
-dust_template = "/uufs/chpc.utah.edu/common/home/haskins-group1/users/jbail/GEOSChem/SSURGO/Scripts/dust_template/dust_emissions_05.20110201.nc"
-regrid_path = "/uufs/chpc.utah.edu/common/home/haskins-group1/users/jbail/GEOSChem/SSURGO/Scripts/in_process_data/_archive/US_playa_mask_4326_01downsampled_conserv_05x0625.nc"
-if not os.path.exists(regrid_path):
-    print(f"Regridding and saving to {regrid_path} ...")
-    dust_template_nc = xr.open_dataset(dust_template)
-    class_tr.regrid_playa_mask_ncfile = class_tr.regrid(class_tr.downsampled_playa_mask_ncfile, dust_template_nc, regrid_path, 'conservative')
+
+
+# Step 5: Regrid to dust template
+regridded_nc = os.path.join(base_path, "5bUS_EC_regridded.nc")
+dust_template_path = "/uufs/chpc.utah.edu/common/home/haskins-group1/users/jbail/GEOSChem/SSURGO/Scripts/dust_template/dust_emissions_05.20110201.nc"
+if not os.path.exists(regridded_nc):
+    print("Regridding to dust emissions template grid...")
+    template_ds = xr.open_dataset(dust_template_path)
+    ds_regridded = processor.regrid_to_template(ds_reprojected, template_ds, regridded_nc, method="conservative")
 else:
-    print(f"{regrid_path} already exists. Skipping regridding.")
-    class_tr.regrid_playa_mask_ncfile = xr.open_dataset(regrid_path)
+    print(f"{regridded_nc} exists. Loading from file...")
+    ds_regridded = xr.open_dataset(regridded_nc)
 
-# Step 6: Factor in chloride content
-cl_path = "/uufs/chpc.utah.edu/common/home/haskins-group1/users/jbail/GEOSChem/SSURGO/Scripts/in_process_data/_archive/US_cl_4326_conservative_05x0625.nc"
-var_name = "f_playa_cl"
-if not os.path.exists(cl_path):
-    print(f"Factoring Cl and saving to {cl_path} ...")
-    class_tr.playa_cl_ncfile = class_tr.derive_cl(cl_path, "Playa_Cl", "Playa_Mask", "Chloride fraction in f_playa (kg/kg)")
+
+# Step 6: Apply chloride fraction
+cl_factored_nc = os.path.join(base_path, "6bUS_EC_cl_factored.nc")
+chloride_fraction = 0.0412
+if not os.path.exists(cl_factored_nc):
+    print(f"Applying chloride fraction: {chloride_fraction}...")
+    ds_cl = processor.apply_chloride_fraction(
+        ds_regridded, cl_factored_nc, cl_fraction=chloride_fraction, output_name="Playa_Cl"
+    )
 else:
-    print(f"{cl_path} already exists. Skipping chloride derivation.")
-    class_tr.playa_cl_ncfile = xr.open_dataset(cl_path)
+    print(f"{cl_factored_nc} exists. Loading from file...")
+    ds_cl = xr.open_dataset(cl_factored_nc)
 
-print("Processing complete.")
-
-# Plotting
-output_png_path = "/uufs/chpc.utah.edu/common/home/haskins-group1/users/jbail/GEOSChem/SSURGO/Scripts/figures/zoomed_regridded_conservative_US_Cl_4326.png"
-bounding_box = (-114, -112, 38, 40)
-# bounding_box = (-125, -100, 30, 45)
-# #bounding_box = (-130, -64, 21, 53)
-#class_tr.pl_downscaled(class_tr.playa_mask_ncfile, class_tr.downsampled_playa_mask_ncfile, "Playa_Mask", "EC 4326", "", output_png_path, bounding_box, clbar_vmin=0, clbar_vmax=1.0)
-#class_tr.pl_downscaled_only(class_tr.downsampled_playa_mask_ncfile, "Playa_Mask", "EC 4326", "", output_png_path, bounding_box, clbar_vmin=0, clbar_vmax=1.0)
-
-#class_tr.pl_USA(class_tr.downsampled_playa_mask_ncfile, "Playa_Mask", "", "", output_png_path, colormap="viridis", clbar_vmin=None, clbar_vmax=None)
-
-class_tr.pl_USA_zoomed(class_tr.playa_cl_ncfile, "Playa_Cl", "", "", output_png_path, bounding_box, clbar_vmin=0, clbar_vmax=1.0)
+print("✅ Processing pipeline complete.")
 
 
-# #class_tr.plot_histogram_nonzeros(class_tr.playa_cl_ncfile['Playa_Cl'], bins=100, x_tick_increment=0.05)
+
+
+
+
+

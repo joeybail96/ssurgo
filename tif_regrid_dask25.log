@@ -1,8 +1,0 @@
-My working directory is /uufs/chpc.utah.edu/common/home/haskins-group1/users/jbail/GEOSChem/SSURGO/Scripts
-	notch154 at Mon Apr 14 20:31:43 MDT 2025
-
-/uufs/notchpeak.peaks/sys/var/slurm/slurmd.spool/notch154//job3899641/slurm_script: line 28: 2801279 Killed                  python /uufs/chpc.utah.edu/common/home/haskins-group1/users/jbail/GEOSChem/SSURGO/Scripts/run_tif_processing.py
-
-Start: Mon Apr 14 20:31:43 MDT 2025
-End: Mon Apr 14 20:58:38 MDT 2025
-slurmstepd: error: Detected 1 oom_kill event in StepId=3899641.batch. Some of the step tasks have been OOM Killed.
