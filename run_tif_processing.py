@@ -1,6 +1,6 @@
 import os
 import xarray as xr
-from tif_utils_v3 import TifProcessor
+from tif_utils import TifProcessor
 
 
 # Init processor
@@ -39,17 +39,6 @@ if not os.path.exists(mask_nc):
 else:
     print(f"{mask_nc} exists. Loading from file...")
     ds_mask = xr.open_dataset(mask_nc)
-
-
-
-# # Step 3a: Resample the mask dataset
-# resampled_nc = os.path.join(base_path, "3aUS_EC_resampled.nc")
-# if not os.path.exists(resampled_nc):
-#     print("Resampling masked dataset...")
-#     ds_resampled = processor.resample_dataset(ds_mask, resampled_nc, var_name='Playa_Mask', scale_factor=0.1)
-# else:
-#     print(f"{resampled_nc} exists. Loading from file...")
-#     ds_resampled = xr.open_dataset(resampled_nc)
 
 
 

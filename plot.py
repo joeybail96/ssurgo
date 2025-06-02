@@ -1,4 +1,4 @@
-from tif_utils_v3 import TifProcessor
+from tif_utils import TifProcessor
 import xarray as xr
 import os
 

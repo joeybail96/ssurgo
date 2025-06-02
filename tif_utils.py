@@ -79,36 +79,7 @@ class TifProcessor:
         return masked_ds
     
     
-    
-    def resample_dataset(self, ds, output_nc_path, var_name='Playa_Mask', scale_factor=0.01):
-        data = ds[var_name].rio.write_crs("EPSG:5070", inplace=True)
-    
-        orig_height, orig_width = data.shape
-        new_height = max(1, int(orig_height * scale_factor))
-        new_width = max(1, int(orig_width * scale_factor))
-    
-        resampled = data.rio.reproject(
-            dst_crs="EPSG:5070",  # Stay in projected space
-            shape=(new_height, new_width),
-            resampling=Resampling.average
-        )
-    
-        # Keep projected coord names
-        resampled = resampled.rename({'x': 'x', 'y': 'y'})
-        resampled = resampled.assign_coords({
-            'x': resampled['x'].values,
-            'y': resampled['y'].values
-        })
-    
-        downsampled_ds = resampled.to_dataset(name=var_name)
-        downsampled_ds[var_name].attrs = ds[var_name].attrs
-        downsampled_ds[var_name].attrs['scale_factor'] = scale_factor
-    
-        downsampled_ds.to_netcdf(output_nc_path)
-        print(f"Resampled dataset saved to: {output_nc_path}")
-        
-        return downsampled_ds
-    
+ 
 
 
     def coarsen_dataset(self, ds, output_nc_path, var_name='Playa_Mask', factor=10):
