@@ -24,7 +24,7 @@ def prompt_and_plot(prompt_text, plot_func):
 def plot_raw():
     ds = xr.open_dataset(coards_nc)
     ds_trimmed = processor.trim_to_latlon_box(ds, bounding_box)
-    output_png_path = f"../figures/{bounding_box_str}_1US_EC_coards_EC.png"
+    output_png_path = f"figures/{bounding_box_str}_1US_EC_coards_EC.png"
     processor.plot_ds_trimmed(ds_trimmed, 'EC', 'viridis', save_path=output_png_path, show_colorbar=False, show_values=False, colorbar_limits=(0, 20))
 
 prompt_and_plot("Plot raw data?", plot_raw)
@@ -33,7 +33,7 @@ prompt_and_plot("Plot raw data?", plot_raw)
 def plot_fine():
     ds1 = xr.open_dataset(mask_nc)
     ds1_trimmed = processor.trim_to_latlon_box(ds1, bounding_box)
-    output_png_path = f"../figures/{bounding_box_str}_2US_EC_mask_Playa_Mask.png"
+    output_png_path = f"figures/{bounding_box_str}_2US_EC_mask_Playa_Mask.png"
     processor.plot_ds_trimmed(ds1_trimmed, 'Playa_Mask', 'Greys', save_path=output_png_path, show_colorbar=False, show_values=False)
 
 prompt_and_plot("Plot fine resolution mask?", plot_fine)
@@ -42,7 +42,7 @@ prompt_and_plot("Plot fine resolution mask?", plot_fine)
 def plot_coarse():
     ds2 = xr.open_dataset(coarsened_nc)
     ds2_trimmed = processor.trim_to_latlon_box(ds2, bounding_box)
-    output_png_path = f"../figures/{bounding_box_str}_3bUS_EC_coarsened_Playa_Mask.png"
+    output_png_path = f"figures/{bounding_box_str}_3bUS_EC_coarsened_Playa_Mask.png"
     processor.plot_ds_trimmed(ds2_trimmed, 'Playa_Mask', 'Greys', save_path=output_png_path, show_colorbar=False, show_values=False)
 
 prompt_and_plot("Plot coarse resolution mask?", plot_coarse)
@@ -53,7 +53,7 @@ def plot_fine_coarse():
     ds1_trimmed = processor.trim_to_latlon_box(ds1, bounding_box)
     ds2 = xr.open_dataset(coarsened_nc)
     ds2_trimmed = processor.trim_to_latlon_box(ds2, bounding_box)
-    output_png_path = f"../figures/{bounding_box_str}_3b_fine_coarse_Playa_Mask.png"
+    output_png_path = f"figures/{bounding_box_str}_3b_fine_coarse_Playa_Mask.png"
     processor.plot_ds_together(ds1_trimmed, ds2_trimmed, 'Playa_Mask', 'Greys', save_path=output_png_path, show_colorbar=False)
 
 prompt_and_plot("Compare fine vs. coarse masks?", plot_fine_coarse)
@@ -61,7 +61,7 @@ prompt_and_plot("Compare fine vs. coarse masks?", plot_fine_coarse)
 # --- Reprojected plot ---
 def plot_reprojected():
     ds1 = xr.open_dataset(reprojected_nc)
-    output_png_path = f"../figures/{bounding_box_str}_4bUS_EC_reprojected_Playa_Mask.png"
+    output_png_path = f"figures/{bounding_box_str}_4bUS_EC_reprojected_Playa_Mask.png"
     processor.plot_ds_epsg4326(ds1, 'Playa_Mask', 'Greys', bounding_box, save_path=output_png_path, show_colorbar=False, show_values=False)
 
 prompt_and_plot("Plot reprojected data?", plot_reprojected)
@@ -69,7 +69,7 @@ prompt_and_plot("Plot reprojected data?", plot_reprojected)
 # --- Regridded plot ---
 def plot_regridded():
     ds2 = xr.open_dataset(regridded_nc)
-    output_png_path = f"../figures/{bounding_box_str}_5bUS_EC_regridded_Playa_Mask.png"
+    output_png_path = f"figures/{bounding_box_str}_5bUS_EC_regridded_Playa_Mask.png"
     processor.plot_ds_epsg4326(ds2, 'Playa_Mask', 'Greys', bounding_box, grid_thickness=0, save_path=output_png_path, show_colorbar=False, show_values=False)
 
 prompt_and_plot("Plot regridded data?", plot_regridded)
@@ -78,7 +78,7 @@ prompt_and_plot("Plot regridded data?", plot_regridded)
 def plot_reprojected_regridded():
     ds1 = xr.open_dataset(reprojected_nc)
     ds2 = xr.open_dataset(regridded_nc)
-    output_png_path = f"../figures/{bounding_box_str}_5b_reprojected_regridded_Playa_Mask.png"
+    output_png_path = f"figures/{bounding_box_str}_5b_reprojected_regridded_Playa_Mask.png"
     processor.plot_ds_together_4326(ds1, ds2, 'Playa_Mask', 'Greys', save_path=output_png_path, show_colorbar=False, bounding_box=bounding_box)
 
 prompt_and_plot("Compare reprojected vs. regridded?", plot_reprojected_regridded)
@@ -86,7 +86,7 @@ prompt_and_plot("Compare reprojected vs. regridded?", plot_reprojected_regridded
 # --- Chloride factored plot ---
 def plot_chloride():
     ds = xr.open_dataset(chloride_nc)
-    output_png_path = f"../figures/{bounding_box_str}_5b_chloride_Playa_Cl.png"
-    processor.plot_ds_epsg4326(ds, 'Playa_Cl', 'viridis', bounding_box, grid_thickness=0, save_path=output_png_path, show_colorbar=False, show_values=False)
+    output_png_path = f"figures/{bounding_box_str}_5b_chloride_Playa_Cl.png"
+    processor.plot_ds_epsg4326(ds, 'Playa_Cl', 'viridis', bounding_box, grid_thickness=0, save_path=None, show_colorbar=True, colorbar_limits=(0, 0.05))
 
 prompt_and_plot("Plot chloride-factored Playa Mask?", plot_chloride)
