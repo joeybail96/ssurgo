@@ -91,8 +91,16 @@ else:
 print("✅ Processing pipeline complete.")
 
 
+# Step 7: Apply chloride fraction to emission files
+emissions_root    = "/uufs/chpc.utah.edu/common/home/haskins-group1/users/jbail/GEOSChem/ExtData/OFFLINE_DUST/v2021-08/0.5x0.625/original"
+output_root_playa = "/uufs/chpc.utah.edu/common/home/haskins-group1/users/jbail/GEOSChem/ExtData/OFFLINE_DUST/v2021-08/0.5x0.625/PLAYA"
 
-
+processor.apply_fraction_mask_to_emissions(
+    ds_f=ds_regridded,
+    var_name = 'Playa_Mask',
+    input_root=emissions_root,
+    output_root_mod=output_root_playa,
+)
 
 
 

@@ -18,7 +18,10 @@ from pyproj import Transformer
 import pyproj
 from matplotlib.ticker import MaxNLocator
 from cartopy.mpl.ticker import LongitudeFormatter, LatitudeFormatter
-
+import os
+from matplotlib.colors import TwoSlopeNorm
+import pandas as pd
+import matplotlib.patches as mpatches
 
 class TifProcessor:
     def __init__(self):
@@ -188,6 +191,65 @@ class TifProcessor:
         return result.to_dataset()
 
 
+    def apply_fraction_mask_to_emissions(self, ds_f, var_name, input_root, output_root_mod):
+            dst_vars = ['EMIS_DST1', 'EMIS_DST2', 'EMIS_DST3', 'EMIS_DST4']
+            plya_vars = ['EMIS_PLYA1', 'EMIS_PLYA2', 'EMIS_PLYA3', 'EMIS_PLYA4']
+        
+            for root, _, files in os.walk(input_root):
+                for file in files:
+                    if file.endswith(".nc"):
+                        input_path = os.path.join(root, file)
+        
+                        # Determine output path by replacing root
+                        rel_path = os.path.relpath(input_path, input_root)
+                        # Determine output path by replacing root
+                        rel_path = os.path.relpath(input_path, input_root)
+                        
+                        # Modify the filename by replacing "dust" with "playa"
+                        new_filename = file.replace("dust", "playa")
+                        new_rel_path = os.path.join(os.path.dirname(rel_path), new_filename)
+                        output_path_dst_mod = os.path.join(output_root_mod, new_rel_path)
+        
+                        # Skip if outputs already exist
+                        if os.path.exists(output_path_dst_mod):
+                            print(f"Skipping {rel_path}, outputs exist.")
+                            continue
+        
+                        print(f"Processing {rel_path}...")
+        
+                        # Load emission file
+                        ds_emis = xr.open_dataset(input_path)
+        
+                        # Prepare new dataset with same coordinates
+                        ds_emis_mod = xr.Dataset(coords=ds_emis.coords)
+        
+                        # Expand mask time dimension if needed
+                        f_vals = ds_f[var_name]
+                        if "time" in ds_emis.dims and "time" not in f_vals.dims:
+                            f_vals = f_vals.expand_dims({"time": ds_emis.dims["time"]}, axis=0)
+        
+                        # Multiply and rename emission variables, convert NaNs to 0
+                        for dst_var, plya_var in zip(dst_vars, plya_vars):
+                            if dst_var in ds_emis:
+                                masked = ds_emis[dst_var] * f_vals
+                                ds_emis_mod[plya_var] = masked.fillna(0)
+        
+                        # Copy over static variables like AREA without modifying them
+                        for var in ds_emis.data_vars:
+                            if var not in dst_vars:
+                                ds_emis_mod[var] = ds_emis[var]
+        
+                        # Ensure output directory exists
+                        os.makedirs(os.path.dirname(output_path_dst_mod), exist_ok=True)
+        
+                        # Save
+                        ds_emis_mod = ds_emis_mod.fillna(0)
+                        ds_emis_mod.to_netcdf(output_path_dst_mod)
+                        print(f"Saved:\n  {var_name} → {output_path_dst_mod}\n") 
+
+
+
+
     def trim_to_latlon_box(self, ds, bounding_box):
         """
         Trim an xarray dataset in EPSG:5070 using a bounding box in EPSG:4326.
@@ -303,6 +365,117 @@ class TifProcessor:
                  plt.show()  
 
 
+    def plot_ds_5070_to_4326(
+        self, ds_trimmed, var_name, colormap,
+        save_path=None, grid_thickness="0", show_colorbar=True,
+        show_values=False, colorbar_limits=(0, 1),
+        bounding_box=None,
+        plot_boa=True,
+        use_centered_norm=False
+    ):
+        crs_5070 = pyproj.CRS("EPSG:5070")
+        crs_4326 = pyproj.CRS("EPSG:4326")
+        transformer = Transformer.from_crs(crs_5070, crs_4326, always_xy=True)
+    
+        crs_proj = ccrs.PlateCarree()
+        fig, ax = plt.subplots(figsize=(10, 8), subplot_kw={'projection': crs_proj})
+    
+        # Map features
+        ax.add_feature(cfeature.STATES, edgecolor='gray', linewidth=.5)
+        ax.add_feature(cfeature.BORDERS, edgecolor='gray', linewidth=.5)
+        ax.coastlines(resolution='10m', color='gray', linewidth=.5)
+    
+        # Set extent if bounding box is specified
+        if bounding_box:
+            min_lon, max_lon, min_lat, max_lat = bounding_box
+            ax.set_extent([min_lon, max_lon, min_lat, max_lat], crs=ccrs.PlateCarree())
+    
+        x = ds_trimmed['x'].values
+        y = ds_trimmed['y'].values
+        z = ds_trimmed[var_name].values
+    
+        x_edge = x[:-1] + np.diff(x) / 2
+        y_edge = y[:-1] + np.diff(y) / 2
+        X_5070, Y_5070 = np.meshgrid(x_edge, y_edge)
+        Lon, Lat = transformer.transform(X_5070, Y_5070)
+    
+        Z = z[:-1, :-1]
+    
+        # Apply bounding box mask after reprojecting
+        if bounding_box:
+            mask = (
+                (Lon >= min_lon) & (Lon <= max_lon) &
+                (Lat >= min_lat) & (Lat <= max_lat)
+            )
+            Z = np.where(mask, Z, np.nan)
+    
+        #vmin, vmax = colorbar_limits
+        vmin, vmax = colorbar_limits
+        if use_centered_norm:
+            from matplotlib.colors import TwoSlopeNorm
+            vcenter = 8  # Adjust this if needed
+            norm = TwoSlopeNorm(vmin=vmin, vcenter=vcenter, vmax=vmax)
+        else:
+            norm = None
+
+    
+        # img = ax.pcolormesh(
+        #     Lon, Lat, Z,
+        #     transform=crs_proj,
+        #     cmap=colormap,
+        #     shading='auto',
+        #     edgecolors='black',
+        #     linewidth=grid_thickness,
+        #     vmin=vmin,
+        #     vmax=vmax
+        # )
+        img = ax.pcolormesh(
+            Lon, Lat, Z,
+            transform=crs_proj,
+            cmap=colormap,
+            norm=norm,
+            shading='auto',
+            edgecolors='black',
+            linewidth=grid_thickness,
+            vmin=None if norm else vmin,
+            vmax=None if norm else vmax
+        )
+    
+        if show_colorbar:
+            cbar = plt.colorbar(img, ax=ax, orientation='vertical', pad=0.05)
+            cbar.set_label(var_name)
+    
+        if show_values:
+            for i in range(Lon.shape[1]):
+                for j in range(Lat.shape[0]):
+                    val = Z[j, i]
+                    if np.isfinite(val):
+                        ax.text(
+                            Lon[j, i], Lat[j, i],
+                            f'{val:.2f}',
+                            color='red',
+                            ha='center',
+                            va='center',
+                            fontsize=8
+                        )
+        # Optional: plot red dot at fixed lat/lon
+        if plot_boa:
+            ax.plot(
+                -105.0039, 40.0500,  # lon, lat
+                marker='o',
+                color='red',
+                markeredgecolor='blue',
+                markersize=8,
+                transform=ccrs.PlateCarree()
+            )
+            
+        plt.tight_layout()
+    
+        if save_path:
+            plt.savefig(save_path, dpi=300, bbox_inches='tight')
+            plt.close()
+        else:
+            plt.show()
 
 
 
@@ -410,16 +583,18 @@ class TifProcessor:
         bounding_box=None,  # Optional (min_lon, max_lon, min_lat, max_lat)
         plot_title=None,
         save_path=None, grid_thickness="0", show_colorbar=True,
-        show_values=False, colorbar_limits=(0, 1)
+        show_values=False, colorbar_limits=(0, 1),
+        log_scale=False,
+        plot_boa=True
     ):
         crs_proj = ccrs.PlateCarree()  # EPSG:4326 projection
     
         fig, ax = plt.subplots(figsize=(10, 8), subplot_kw={'projection': crs_proj})
     
         # Map features
-        ax.add_feature(cfeature.STATES, edgecolor='black', linewidth=2)
-        ax.add_feature(cfeature.BORDERS, edgecolor='black', linewidth=2)
-        ax.coastlines(resolution='10m', color='black', linewidth=2)
+        ax.add_feature(cfeature.STATES, edgecolor='gray', linewidth=1.25)
+        ax.add_feature(cfeature.BORDERS, edgecolor='gray', linewidth=1.25)
+        ax.coastlines(resolution='10m', color='gray', linewidth=1.25)
     
         # Apply bounding box if provided
         if bounding_box:
@@ -434,12 +609,27 @@ class TifProcessor:
         lon = ds['lon'].values
         lat = ds['lat'].values
         z = ds[var_name].values
+        z = np.nan_to_num(z, nan=0)
     
         # Meshgrid for pcolormesh
         Lon, Lat = np.meshgrid(lon, lat)
     
+        # Handle color limits and log scaling
         vmin, vmax = colorbar_limits
     
+        if log_scale:
+            z[z <= 0] = np.nan  # log scale can't have zero or negative
+            if vmin <= 0 or not np.isfinite(vmin):
+                vmin = np.nanmin(z)
+            if vmax <= 0 or not np.isfinite(vmax):
+                vmax = np.nanmax(z)
+            if vmin <= 0 or vmax <= vmin:
+                raise ValueError(f"Invalid log-scale limits: vmin={vmin}, vmax={vmax}")
+            norm = LogNorm(vmin=vmin, vmax=vmax)
+        else:
+            norm = None
+    
+        # Plot data
         img = ax.pcolormesh(
             Lon, Lat, z,
             transform=crs_proj,
@@ -447,8 +637,9 @@ class TifProcessor:
             shading='auto',
             edgecolors='black',
             linewidth=grid_thickness,
-            vmin=vmin,
-            vmax=vmax
+            norm=norm,
+            vmin=None if log_scale else vmin,
+            vmax=None if log_scale else vmax
         )
     
         if show_colorbar:
@@ -458,20 +649,31 @@ class TifProcessor:
         if show_values:
             for i in range(len(lon)):
                 for j in range(len(lat)):
-                    ax.text(
-                        lon[i], lat[j],
-                        f'{z[j, i]:.2f}',
-                        color='red',
-                        ha='center',
-                        va='center',
-                        fontsize=8
-                    )
+                    if np.isfinite(z[j, i]):
+                        ax.text(
+                            lon[i], lat[j],
+                            f'{z[j, i]:.4f}',
+                            color='red',
+                            ha='center',
+                            va='center',
+                            fontsize=8
+                        )
+                        
+        # Optional: plot red dot at fixed lat/lon
+        if plot_boa:
+            ax.plot(
+                -105.0039, 40.0500,  # lon, lat
+                marker='o',
+                color='red',
+                markeredgecolor='blue',
+                markersize=8,
+                transform=ccrs.PlateCarree()
+            )
     
-        plt.tight_layout()
-        
-        # ✅ Add the plot title here
         if plot_title:
             ax.set_title(plot_title, fontsize=14, pad=15)
+    
+        plt.tight_layout()
     
         if save_path:
             plt.savefig(save_path, dpi=300, bbox_inches='tight')
@@ -548,7 +750,8 @@ class TifProcessor:
                 linewidth=2,
                 alpha=1.0
             )
-    
+            
+
         if show_colorbar and plot_ds2:
             cbar2 = plt.colorbar(img2, ax=ax, orientation='vertical', pad=0.05)
             cbar2.set_label(f'{var_name} (ds2)')
@@ -565,15 +768,302 @@ class TifProcessor:
             plt.show()
 
 
+       
+    def plot_emissions(self,
+        ds, var_name, input_root,
+        time_range=None,
+        bounding_box=None,
+        colormap='viridis',
+        aerosol='dust',
+    ):
+
+        if aerosol=='dust':
+            dst_vars = ['EMIS_DST1', 'EMIS_DST2', 'EMIS_DST3', 'EMIS_DST4']
+        elif aerosol=='playa':
+            dst_vars = ['EMIS_PLYA1', 'EMIS_PLYA2', 'EMIS_PLYA3', 'EMIS_PLYA4']
+            
+        total_sum = None
+    
+        if time_range is not None:
+            t_start, t_end = pd.to_datetime(time_range[0]), pd.to_datetime(time_range[1])
+    
+        for root, _, files in os.walk(input_root):
+            for file in files:
+                if not file.endswith(".nc"):
+                    continue
+    
+                input_path = os.path.join(root, file)
+                try:
+                    ds_emis = xr.open_dataset(input_path)
+                except Exception as e:
+                    print(f"Failed to open {input_path}: {e}")
+                    continue
+    
+                if time_range is not None and "time" in ds_emis:
+                    ds_emis = ds_emis.sel(time=slice(t_start, t_end))
+                    if ds_emis.sizes["time"] == 0:
+                        print(f"Skipping {input_path} — no time overlap with range")
+                        continue
+    
+                if "AREA" not in ds_emis:
+                    print(f"AREA variable not found in {input_path}")
+                    continue
+    
+                area = ds_emis["AREA"]
+    
+                # Get time step in seconds, assume regular intervals
+                if "time" in ds_emis and ds_emis.sizes["time"] > 1:
+                    dt_seconds = float((ds_emis['time'][1].values - ds_emis['time'][0].values) / np.timedelta64(1, 's'))
+                else:
+                    # Fallback: 1 hour if only 1 time step (change as needed)
+                    dt_seconds = 3600.0
+    
+                file_sum = None
+                for var in dst_vars:
+                    if var in ds_emis:
+                        # kg = (kg/m2/s * m2 * s), sum over time
+                        emis_sum = (ds_emis[var] * area * dt_seconds).sum(dim='time')
+                        if file_sum is None:
+                            file_sum = emis_sum
+                        else:
+                            file_sum += emis_sum
+    
+                if file_sum is not None:
+                    if total_sum is None:
+                        total_sum = file_sum
+                    else:
+                        total_sum += file_sum
+    
+        if total_sum is None:
+            print("No emission data found.")
+            return
+    
+        if bounding_box is not None:
+            min_lon, max_lon, min_lat, max_lat = bounding_box
+            total_sum = total_sum.where(
+                (total_sum.lon >= min_lon) & (total_sum.lon <= max_lon) &
+                (total_sum.lat >= min_lat) & (total_sum.lat <= max_lat),
+                drop=True
+            )
+    
+        total_emissions_kg = float(total_sum.sum().values)
+        print(f"Total dust emissions (EMIS_DST1-4, summed over files and grid) = {total_emissions_kg:,.2f} kg")
+    
+        crs_proj = ccrs.PlateCarree()
+        fig, ax = plt.subplots(figsize=(10, 6), subplot_kw={'projection': crs_proj})
+        ax.add_feature(cfeature.STATES, edgecolor='gray', linewidth=1.0)
+        ax.add_feature(cfeature.BORDERS, edgecolor='gray', linewidth=1.0)
+        ax.coastlines(resolution='10m', color='gray', linewidth=1.0)
+    
+        lon = total_sum['lon'].values
+        lat = total_sum['lat'].values
+        Lon, Lat = np.meshgrid(lon, lat)
+        z = np.nan_to_num(total_sum.values, nan=0)
+    
+        im = ax.pcolormesh(Lon, Lat, z, transform=crs_proj, cmap=colormap, shading='auto')
+        cbar = plt.colorbar(im, ax=ax, orientation='vertical', pad=0.05)
+        cbar.set_label('Total Emitted Dust (kg per grid box)')
+    
+        ax.set_xlabel("Longitude")
+        ax.set_ylabel("Latitude")
+        ax.set_title(f"Total Dust Emitted (kg per grid)\n{time_range}")
+        plt.tight_layout()
+        plt.show()
 
 
 
+    def plot_emissions_with_mask(
+        self,
+        ds,
+        var_name,
+        input_root,
+        time_range=None,
+        bounding_box=None,
+        var_names=('EMIS_DST1', 'EMIS_DST2', 'EMIS_DST3', 'EMIS_DST4'),
+        colormap='viridis',
+        mask_threshold=0.03  # Only plot boxes where mask > threshold
+    ):
+
+    
+        total_sum = None
+        if time_range is not None:
+            t_start, t_end = pd.to_datetime(time_range[0]), pd.to_datetime(time_range[1])
+        else:
+            t_start, t_end = None, None
+    
+        for root, _, files in os.walk(input_root):
+            for file in files:
+                if not file.endswith(".nc"):
+                    continue
+                input_path = os.path.join(root, file)
+                try:
+                    ds_emis = xr.open_dataset(input_path)
+                except Exception as e:
+                    print(f"Failed to open {input_path}: {e}")
+                    continue
+                if "time" in ds_emis and t_start is not None and t_end is not None:
+                    ds_emis = ds_emis.sel(time=slice(t_start, t_end))
+                    if ds_emis.sizes.get("time", 1) == 0:
+                        continue
+                if "AREA" not in ds_emis:
+                    print(f"AREA variable not found in {input_path}")
+                    continue
+                area = ds_emis["AREA"]
+    
+                # Compute dt_seconds for each file
+                if "time" in ds_emis and ds_emis.sizes["time"] > 1:
+                    dt_seconds = float((ds_emis['time'][1].values - ds_emis['time'][0].values) / np.timedelta64(1, 's'))
+                else:
+                    dt_seconds = 3600.0  # fallback, change if your data has different default
+    
+                file_sum = None
+                for var in var_names:
+                    if var in ds_emis:
+                        # kg = (kg/m2/s * m2 * s), sum over time
+                        emis_sum = (ds_emis[var] * area * dt_seconds).sum(dim="time")
+                        if file_sum is None:
+                            file_sum = emis_sum
+                        else:
+                            file_sum += emis_sum
+                if file_sum is not None:
+                    if total_sum is None:
+                        total_sum = file_sum
+                    else:
+                        total_sum += file_sum
+    
+        if total_sum is None:
+            print("No emission data found.")
+            return
+    
+        if bounding_box is not None:
+            min_lon, max_lon, min_lat, max_lat = bounding_box
+            total_sum = total_sum.where(
+                (total_sum.lon >= min_lon) & (total_sum.lon <= max_lon) &
+                (total_sum.lat >= min_lat) & (total_sum.lat <= max_lat),
+                drop=True
+            )
+    
+        crs_proj = ccrs.PlateCarree()
+        fig, ax = plt.subplots(figsize=(10, 6), subplot_kw={'projection': crs_proj})
+        ax.add_feature(cfeature.STATES, edgecolor='gray', linewidth=1.0)
+        ax.add_feature(cfeature.BORDERS, edgecolor='gray', linewidth=1.0)
+        ax.coastlines(resolution='10m', color='gray', linewidth=1.0)
+    
+        lon = total_sum['lon'].values
+        lat = total_sum['lat'].values
+        Lon, Lat = np.meshgrid(lon, lat)
+        z = np.nan_to_num(total_sum.values, nan=0)
+        im = ax.pcolormesh(Lon, Lat, z, transform=crs_proj, cmap=colormap, shading='auto')
+        cbar = plt.colorbar(im, ax=ax, orientation='vertical', pad=0.05)
+        cbar.set_label('Total Dust Emitted (kg per grid box)')
+    
+        mask = ds[var_name].values
+        mask_lat = ds['lat'].values
+        mask_lon = ds['lon'].values
+        dlat = (mask_lat[1] - mask_lat[0]) / 2 if len(mask_lat) > 1 else 0.25
+        dlon = (mask_lon[1] - mask_lon[0]) / 2 if len(mask_lon) > 1 else 0.25
+        for i in range(mask.shape[0]):
+            for j in range(mask.shape[1]):
+                if mask[i, j] > mask_threshold:
+                    lat0 = mask_lat[i] - dlat
+                    lon0 = mask_lon[j] - dlon
+                    rect = mpatches.Rectangle(
+                        (lon0, lat0), 2*dlon, 2*dlat,
+                        fill=False, edgecolor='red', linewidth=1.0,
+                        transform=crs_proj, zorder=10
+                    )
+                    ax.add_patch(rect)
+    
+        ax.set_xlabel("Longitude")
+        ax.set_ylabel("Latitude")
+        title_str = f"Total Dust Emitted (kg per grid)"
+        if time_range is not None:
+            title_str += f"\n{time_range[0]} to {time_range[1]}"
+        ax.set_title(title_str)
+        plt.tight_layout()
+        plt.show()
 
 
 
-
-
-
+    def sum_total_emissions(
+        self,
+        input_root,
+        time_range=None,
+        bounding_box=None,
+        var_names=('EMIS_DST1', 'EMIS_DST2', 'EMIS_DST3', 'EMIS_DST4')
+    ):
+        import numpy as np
+        import pandas as pd
+        import os
+        import xarray as xr
+    
+        total_sum = None
+    
+        if time_range is not None:
+            t_start, t_end = pd.to_datetime(time_range[0]), pd.to_datetime(time_range[1])
+        else:
+            t_start, t_end = None, None
+    
+        for root, _, files in os.walk(input_root):
+            for file in files:
+                if not file.endswith(".nc"):
+                    continue
+    
+                input_path = os.path.join(root, file)
+                try:
+                    ds_emis = xr.open_dataset(input_path)
+                except Exception as e:
+                    print(f"Failed to open {input_path}: {e}")
+                    continue
+    
+                if "time" in ds_emis and t_start is not None and t_end is not None:
+                    ds_emis = ds_emis.sel(time=slice(t_start, t_end))
+                    if ds_emis.sizes.get("time", 1) == 0:
+                        continue
+    
+                if "AREA" not in ds_emis:
+                    print(f"AREA variable not found in {input_path}")
+                    continue
+    
+                area = ds_emis["AREA"]
+    
+                # Compute dt_seconds (assuming regular time intervals)
+                if "time" in ds_emis and ds_emis.sizes["time"] > 1:
+                    dt_seconds = float((ds_emis['time'][1].values - ds_emis['time'][0].values) / np.timedelta64(1, 's'))
+                else:
+                    dt_seconds = 3600.0  # fallback default, adjust if your data is different
+    
+                file_sum = None
+                for var in var_names:
+                    if var in ds_emis:
+                        emis_sum = (ds_emis[var] * area * dt_seconds).sum(dim="time")
+                        if file_sum is None:
+                            file_sum = emis_sum
+                        else:
+                            file_sum += emis_sum
+    
+                if file_sum is not None:
+                    if total_sum is None:
+                        total_sum = file_sum
+                    else:
+                        total_sum += file_sum
+    
+        if total_sum is None:
+            print("No emission data found.")
+            return None
+    
+        # Optional: restrict to bounding box
+        if bounding_box is not None:
+            min_lon, max_lon, min_lat, max_lat = bounding_box
+            total_sum = total_sum.where(
+                (total_sum.lon >= min_lon) & (total_sum.lon <= max_lon) &
+                (total_sum.lat >= min_lat) & (total_sum.lat <= max_lat),
+                drop=True
+            )
+    
+        total_emissions_kg = float(total_sum.sum().values)
+        print(f"Total dust emissions (EMIS_DST1-4, summed over files and grid) = {total_emissions_kg:,.2f} kg")
+        return total_emissions_kg
 
 
 
